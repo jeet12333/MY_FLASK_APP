@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat Room</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <!-- Sidebar for User List -->
+        <div class="sidebar">
+            <h2>Chats</h2>
+            <input type="text" placeholder="Search or start a new chat" class="search-bar" id="search-user">
+            <ul class="user-list" id="user-list">
+                <!-- User list will be populated here -->
+            </ul>
+            <button id="logout-button">Logout</button>
+        </div>
+        
+        <!-- Chat Area -->
+        <div class="chat-area">
+            <div class="chat-header">
+                <h2 id="chat-username">Welcome to the Chat Room</h2>
+            </div>
+            <div class="chat-history" id="messages">
+                <!-- Chat messages will be displayed here -->
+            </div>
+            <div class="chat-input">
+                <input id="message" type="text" placeholder="Type a message..." class="message-input">
+                <button class="send-btn" onclick="sendMessage()">Send</button>
+                <input type="file" id="file-input" class="file-upload">
+                <button class="send-file-btn" onclick="sendFile()">Send File</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/script.js"></script>
+    <script>
+        const socket = io(); // Initialize socket connection once
+
+        // Fetch and display all users in the sidebar
+        function fetchUsers() {
+            fetch('/users')
+                .then(response => response.json())
+                .then(users => {
+                    const userList = document.getElementById("user-list");
+                    userList.innerHTML = ""; // Clear existing user list
+                    users.forEach(user => {
+                        const li = document.createElement("li");
+                        li.textContent = user;
+                        li.onclick = () => selectUser(user); // Set click event to select user
+                        userList.appendChild(li);
+                    });
+                })
+                .catch(error => console.error('Error fetching users:', error));
+        }
+
+        // Select user to display their chat
+        function selectUser(user) {
+            document.getElementById("chat-username").textContent = user;
+            document.getElementById("messages").innerHTML = ""; // Clear chat history
+
+            // Optionally fetch previous messages for this user from the server
+            fetch(`/get_chat_history?user=${user}`)
+                .then(response => response.json())
+                .then(messages => {
+                    messages.forEach(message => {
+                        const position = message.sent_by_me ? 'right' : 'left';
+                        displayMessage(message.username, message.text, position);
+                    });
+                })
+                .catch(error => console.error('Error fetching chat history:', error));
+        }
+
+        // Send a message
+        function sendMessage() {
+            const messageInput = document.getElementById("message");
+            const message = messageInput.value;
+            const chatUser = document.getElementById("chat-username").textContent;
+
+            if (message) {
+                socket.emit('message', { username: chatUser, message });
+                displayMessage("You", message, 'right'); // Display on the right side
+                messageInput.value = ''; // Clear input after sending
+            }
+        }
+
+        // Display a message in the chat area
+        function displayMessage(sender, message, position) {
+            const messagesDiv = document.getElementById("messages");
+            const messageElement = document.createElement("div");
+            messageElement.classList.add("message", position);
+            messageElement.textContent = `${sender}: ${message}`;
+            messagesDiv.appendChild(messageElement);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight; // Scroll to the bottom
+        }
+
+        // Receive message from other users and display in chat history
+        socket.on('message', function(data) {
+            const position = data.username === document.getElementById("chat-username").textContent ? 'left' : 'right';
+            displayMessage(data.username, data.message, position);
+        });
+
+        // Search for a user in the user list
+        document.getElementById("search-user").addEventListener("input", function() {
+            const searchTerm = this.value.toLowerCase();
+            const userListItems = document.querySelectorAll(".user-list li");
+            userListItems.forEach(item => {
+                const text = item.textContent.toLowerCase();
+                item.style.display = text.includes(searchTerm) ? "" : "none"; // Show or hide based on search term
+            });
+        });
+
+        // Log out the user
+        document.getElementById('logout-button').addEventListener('click', function() {
+            fetch('/logout', {
+                method: 'POST'
+            })
+            .then(response => {
+                if (response.ok) {
+                    window.location.href = '/login'; // Redirect after successful logout
+                } else {
+                    alert('Logout failed.');
+                }
+            })
+            .catch(error => console.error('Error logging out:', error));
+        });
+
+        // Send a file
+        function sendFile() {
+            const fileInput = document.getElementById("file-input");
+            const file = fileInput.files[0];
+            const chatUser = document.getElementById("chat-username").textContent;
+
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(event) {
+                    const fileData = event.target.result;
+                    socket.emit('file', { filename: file.name, data: fileData, username: chatUser });
+                    displayMessage("You", `Sent a file: ${file.name}`, 'right'); // Display file message on the right side
+                };
+                reader.readAsArrayBuffer(file);
+            }
+        }
+
+        // Receive and display file notification
+        socket.on('file', function(data) {
+            const messagesDiv = document.getElementById("messages");
+            const fileElement = document.createElement("div");
+            fileElement.classList.add("file-message", "left");
+            fileElement.textContent = `${data.username} sent a file: ${data.filename}`;
+            messagesDiv.appendChild(fileElement);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight; // Scroll to the bottom
+        });
+
+        // Initialize chat and user list on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            fetchUsers(); // Fetch users when the document is loaded
+        });
+    </script>
+</body>
+</html>
